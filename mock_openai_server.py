@@ -208,7 +208,11 @@ class Handler(BaseHTTPRequestHandler):
         else:
             content_str = json.dumps(build(stage, user_msg))
 
-        sys.stderr.write(f"[mock] stage={stage} fault={fault}\n")
+        # Log the model verbatim, with no default substituted. The model name is
+        # driven by an expression in Pipeline Config, and an expression that
+        # failed to resolve would otherwise be masked by a fallback further down.
+        sys.stderr.write(f"[mock] stage={stage} fault={fault} "
+                         f"model={req.get('model')!r}\n")
         sys.stderr.flush()
 
         self._send(200, {

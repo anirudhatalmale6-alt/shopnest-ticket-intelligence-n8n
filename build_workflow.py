@@ -39,8 +39,10 @@ def openai_node(name, x, y, system_text, user_expr, temperature, max_tokens, not
         "parameters": {
             "resource": "text",
             "operation": "message",
-            "modelId": {"__rl": True, "mode": "list", "value": MODEL,
-                        "cachedResultName": MODEL},
+            # "id" mode rather than "list" so the value can be an expression:
+            # change the model once in Pipeline Config, not in four nodes.
+            "modelId": {"__rl": True, "mode": "id",
+                        "value": "={{ $('Pipeline Config').first().json.model }}"},
             "messages": {"values": [
                 {"role": "system", "content": system_text},
                 {"role": "user", "content": user_expr},
@@ -306,6 +308,10 @@ def build(input_csv, output_dir):
             "assignments": {"assignments": [
                 {"id": "cfg-in", "name": "input_csv_path", "value": input_csv, "type": "string"},
                 {"id": "cfg-out", "name": "output_dir", "value": output_dir, "type": "string"},
+                # Read by all four LLM nodes. A lab-supplied credential may sit
+                # behind a proxy that serves a different model name, so the model
+                # is one setting here rather than hard-coded in four places.
+                {"id": "cfg-model", "name": "model", "value": MODEL, "type": "string"},
             ]},
             "options": {},
         },
@@ -511,8 +517,14 @@ def build(input_csv, output_dir):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--local", help="build a test copy pointing at this directory")
-    ap.add_argument("--out", default=os.path.join(HERE, "ShopNest_Ticket_Intelligence.json"))
+    ap.add_argument("--out")
     a = ap.parse_args()
+
+    # --local must never land on the shipping file. It bakes in machine-specific
+    # absolute paths, and overwriting the deliverable with them is silent.
+    if not a.out:
+        a.out = os.path.join(HERE, "test", "wf_local.json") if a.local else \
+                os.path.join(HERE, "ShopNest_Ticket_Intelligence.json")
 
     if a.local:
         wf = build(os.path.join(a.local, "data", "support_ticket_data.csv"),

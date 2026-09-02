@@ -115,17 +115,35 @@ of the n8n screen and I'll downgrade the affected nodes.
 
 ## Which LLM credential
 
-n8n does not do the summarising itself — it calls out to a provider. The four
-OpenAI nodes need a credential. In order of preference:
+n8n does not do the summarising itself — it calls out to a provider, and the four
+OpenAI nodes need a credential to do that.
 
-1. **A credential the lab already provides.** Check Credentials in the left
-   sidebar for an existing "OpenAI account" before doing anything else.
-2. **n8n's own free AI credits**, if the trial offers them in the credential
-   dropdown.
-3. **Your own key** from platform.openai.com, only if neither exists.
+**In the Great Learning lab this is already provided.** Credentials shows two:
 
-Cost is not the issue: 30 tickets × 4 calls = 120 calls on `gpt-4o-mini` is a few
-cents. The only friction is OpenAI's minimum top-up.
+| Credential | Type | Use |
+|---|---|---|
+| `Great Learning AI (OpenAI + Gemini)` | OpenAI | **this one** — select it in all four OpenAI nodes |
+| `Great Learning AI (Gemini)` | Google Gemini(PaLM) | only needed if the nodes are swapped to Gemini |
+
+Nothing to create and nothing to pay for. Open each of the four OpenAI nodes and
+pick the OpenAI-type credential from the dropdown.
+
+### If the model name is rejected
+
+A lab credential may point at a proxy that serves different model names. The model
+is therefore **one setting, not four**: open `Pipeline Config` and edit `model`.
+All four LLM nodes read it via an expression, so one edit changes every call.
+
+This is verified, not assumed — setting `model` to a sentinel value and re-running
+showed all 120 endpoint calls carrying the new name, with output otherwise
+identical (30 rows, 35 columns, same 6 tickets queued for review).
+
+Because the model is an expression, the node shows the model field in **By ID**
+mode rather than as a dropdown list. That is expected — do not switch it back to
+list mode or it will stop reading `Pipeline Config`.
+
+Cost is not a concern either way: 30 tickets × 4 calls = 120 calls on a small
+model is a few cents.
 
 A different provider is a node swap, not a rebuild — the prompts and the whole
 downstream graph are provider-agnostic.
@@ -136,14 +154,16 @@ downstream graph are provider-agnostic.
 n8n → Workflows → Import from File → `ShopNest_Ticket_Intelligence.json`
 
 ### 2. Set the OpenAI credential
-Open each of the four OpenAI nodes and pick your own credential from the
-dropdown. The exported JSON references a credential ID (`SHOPNEST_OPENAI`) that
-will not exist in your instance — this is expected, you just select yours.
+Open each of the four OpenAI nodes and pick your credential from the dropdown —
+in the Great Learning lab that is `Great Learning AI (OpenAI + Gemini)`. The
+exported JSON references a credential ID (`SHOPNEST_OPENAI`) that will not exist
+in your instance — this is expected, you just select yours.
 
 ### 3. Point at your data
 Open **Pipeline Config** — the only node you edit — and set:
 - `input_csv_path` → where `support_ticket_data.csv` lives
 - `output_dir` → an existing, writable folder
+- `model` → leave as `gpt-4o-mini` unless the credential rejects that name
 
 Defaults are `/data/support_ticket_data.csv` and `/data/output`, which is the
 standard mount in a Docker n8n. **Create the output folder first** — n8n will not
@@ -173,8 +193,11 @@ The four system messages live in `prompts/` as plain text. Edit them there, then
 
 ```bash
 python3 build_workflow.py                    # regenerates the shipping JSON
-python3 build_workflow.py --local <dir>      # a copy with local test paths
+python3 build_workflow.py --local <dir>      # test copy -> test/wf_local.json
 ```
+
+`--local` writes to `test/wf_local.json`, never to the shipping JSON — it bakes in
+absolute machine paths, and overwriting the deliverable with them is silent.
 
 Re-import the regenerated JSON. Editing prompts inside a 37KB JSON blob by hand
 is how mistakes happen, so the generator is the supported path.

@@ -30,6 +30,12 @@
               "name": "output_dir",
               "value": "/data/output",
               "type": "string"
+            },
+            {
+              "id": "cfg-model",
+              "name": "model",
+              "value": "gpt-4o-mini",
+              "type": "string"
             }
           ]
         },
@@ -116,9 +122,8 @@
         "operation": "message",
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-4o-mini",
-          "cachedResultName": "gpt-4o-mini"
+          "mode": "id",
+          "value": "={{ $('Pipeline Config').first().json.model }}"
         },
         "messages": {
           "values": [
@@ -166,9 +171,8 @@
         "operation": "message",
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-4o-mini",
-          "cachedResultName": "gpt-4o-mini"
+          "mode": "id",
+          "value": "={{ $('Pipeline Config').first().json.model }}"
         },
         "messages": {
           "values": [
@@ -216,9 +220,8 @@
         "operation": "message",
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-4o-mini",
-          "cachedResultName": "gpt-4o-mini"
+          "mode": "id",
+          "value": "={{ $('Pipeline Config').first().json.model }}"
         },
         "messages": {
           "values": [
@@ -266,9 +269,8 @@
         "operation": "message",
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-4o-mini",
-          "cachedResultName": "gpt-4o-mini"
+          "mode": "id",
+          "value": "={{ $('Pipeline Config').first().json.model }}"
         },
         "messages": {
           "values": [
