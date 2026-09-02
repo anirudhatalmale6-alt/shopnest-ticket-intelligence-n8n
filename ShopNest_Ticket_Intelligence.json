@@ -1,0 +1,625 @@
+{
+  "id": "23f5f402-f881-4ce8-8769-1c5e2bdea3a7",
+  "name": "ShopNest Global - AI Ticket Intelligence POC",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        300
+      ],
+      "id": "1458a0d4-cc84-487f-abcb-f57fc32edec8",
+      "name": "Run Pipeline (On Demand)",
+      "notes": "Press Execute Workflow to run. Swap for a Schedule Trigger to run nightly.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-in",
+              "name": "input_csv_path",
+              "value": "/data/support_ticket_data.csv",
+              "type": "string"
+            },
+            {
+              "id": "cfg-out",
+              "name": "output_dir",
+              "value": "/data/output",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -160,
+        300
+      ],
+      "id": "576c7521-f92e-46cb-90bf-faa104794ff5",
+      "name": "Pipeline Config",
+      "notes": "THE ONLY NODE YOU EDIT to move this workflow between environments.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.input_csv_path }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        60,
+        300
+      ],
+      "id": "2ed6b103-8939-492f-bdeb-a4107b423609",
+      "name": "Read Ticket CSV",
+      "notes": "Loads the raw ticket file from disk.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        280,
+        300
+      ],
+      "id": "3a141d31-e7d0-4258-8086-d22274042b26",
+      "name": "Parse CSV to Rows",
+      "notes": "RUBRIC 1: Data Loading. 30 rows in, one n8n item per ticket.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// RUBRIC 1: Data Loading - normalise and display the loaded data.\n// The source CSV is UTF-8 with a BOM, so the first header arrives as\n// '﻿support_ticket_id'. Strip the BOM and trim every key so the rest of the\n// workflow can rely on clean field names.\nconst rows = [];\nfor (const item of $input.all()) {\n  const clean = {};\n  for (const [key, value] of Object.entries(item.json)) {\n    clean[key.replace(/^﻿/, '').trim()] = value;\n  }\n  const id = String(clean.support_ticket_id ?? '').trim();\n  const desc = String(clean.support_ticket_desc ?? '').trim();\n  // Skip trailing blank lines rather than sending an empty ticket to the LLM.\n  if (!id && !desc) continue;\n  rows.push({\n    json: {\n      support_ticket_id: id,\n      support_ticket_desc: desc,\n      char_count: desc.length,\n      word_count: desc ? desc.split(/\\s+/).length : 0,\n    },\n  });\n}\nconsole.log(`Loaded ${rows.length} support tickets`);\nreturn rows;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "id": "64d84d37-2688-43d5-98de-4ced30b7fdcb",
+      "name": "Clean & Profile Tickets",
+      "notes": "Strips the UTF-8 BOM from the header, drops blank rows, adds length stats.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        720,
+        300
+      ],
+      "id": "1275091d-dcce-4e6e-a2ae-02dd8cefa820",
+      "name": "Loop Over Tickets",
+      "notes": "One ticket at a time so a single bad ticket cannot fail the whole batch.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a Tier-1 support triage analyst for ShopNest Global, a 30-country e-commerce\nplatform. Support agents read your output BEFORE they read the raw ticket. Your job is\nto remove the 2-3 minutes an agent currently spends decoding a ticket.\n\nTASK\nRead one raw customer support ticket and return a structured triage record.\n\nRULES\n1. Extract only what the ticket actually states. Never invent an order ID, a product, a\n   price, a date or a policy. If the customer did not state it, use \"NOT_PROVIDED\".\n2. If the customer gives two possible order IDs because they are unsure, record both\n   separated by \" OR \" and add \"unconfirmed order ID\" to missing_info.\n3. Strip emotional narrative, history, threats, legal escalation language and\n   pleasantries. Those belong in sentiment and escalation_risk, not in the summary.\n4. Expand support shorthand into plain English so a new agent understands it:\n   NDD = next day delivery, PG = payment gateway, RMA = return merchandise\n   authorisation, DOA = dead on arrival, SLA = service level agreement,\n   L2 = level 2 / senior support, ACH = bank debit, CC = credit card,\n   PMT = payment, txn = transaction, ord = order.\n5. Correct obvious spelling errors when extracting product names and order IDs.\n6. If the ticket is too vague to act on, still return a record: set\n   issue_category to \"Unclear\", write what IS known, and list every fact the agent\n   must ask for in missing_info. Never guess the issue.\n7. summary must be 2 to 3 sentences, factual, written for an agent, and must lead with\n   the issue and the order ID.\n8. escalation_risk is High only when the customer names an external body (BBB, FTC,\n   consumer protection office, attorney, chargeback/bank dispute) or threatens to\n   cancel their account.\n\nOUTPUT FORMAT\nReturn ONLY a JSON object, no markdown fences, no commentary, with exactly these keys:\n{\n  \"order_id\": string,\n  \"issue_category\": one of [\"Delivery Delay\",\"Non-Delivery\",\"Wrong Item\",\"Damaged or Defective Item\",\"Missing Item or Part\",\"Payment Failure\",\"Duplicate Charge\",\"Refund Delay\",\"Return or Exchange\",\"Order Modification\",\"Policy Question\",\"Unclear\"],\n  \"product\": string,\n  \"customer_request\": string,\n  \"summary\": string,\n  \"urgency\": one of [\"High\",\"Medium\",\"Low\"],\n  \"sentiment\": one of [\"Angry\",\"Frustrated\",\"Neutral\",\"Polite\",\"Positive\"],\n  \"escalation_risk\": one of [\"High\",\"Medium\",\"Low\"],\n  \"missing_info\": array of strings\n}"
+            },
+            {
+              "role": "user",
+              "content": "=TICKET ID: {{ $json.support_ticket_id }}\n\nRAW TICKET:\n{{ $json.support_ticket_desc }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "simplify": true,
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 500
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        980,
+        560
+      ],
+      "id": "58741644-4722-4cd8-8a23-f1f159c99316",
+      "name": "Summarise Ticket",
+      "credentials": {
+        "openAiApi": {
+          "id": "SHOPNEST_OPENAI",
+          "name": "ShopNest OpenAI account"
+        }
+      },
+      "notes": "RUBRIC 2: Summarisation. temp 0.2 - extraction, not creativity.",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an impartial quality evaluator (LLM-as-a-Judge) auditing the summarisation\nstage of ShopNest Global's ticket intelligence pipeline. You did not write the summary\nand you have no stake in it. You will be shown the ORIGINAL raw ticket and the\nGENERATED summary record.\n\nYou are auditing, not rewriting. Do not produce an improved summary.\n\nSCORING CRITERIA - score each 1 to 5 (integers only)\n1. faithfulness   - Is every fact in the summary supported by the raw ticket?\n                    5 = no unsupported claim. 3 = one minor embellishment.\n                    1 = invents an order ID, product, price, date or policy.\n                    A hallucinated order ID caps this at 1.\n2. completeness   - Does it capture the order ID, the product, the actual problem and\n                    what the customer wants?\n                    5 = all four present or correctly marked NOT_PROVIDED.\n                    1 = the core ask is missing.\n3. conciseness    - Is the narrative, venting, history and threat language stripped?\n                    5 = 2-3 tight sentences, no filler.\n                    1 = repeats the customer's emotional narrative.\n4. actionability  - Could an agent start work from this alone, without reopening the\n                    raw ticket?\n                    5 = yes. 3 = needs one clarification. 1 = agent must re-read.\n5. classification - Are issue_category, urgency, sentiment and escalation_risk correct\n                    for this ticket?\n                    5 = all four right. 3 = one wrong. 1 = category itself is wrong.\n\nRULES\n- Judge the summary ONLY against the raw ticket. Never against your own opinion of what\n  the customer should have written.\n- A vague ticket correctly marked \"Unclear\" with the right missing_info is a GOOD\n  summary. Score it high. Do not penalise the summary for the ticket being vague.\n- Marking a field NOT_PROVIDED when the customer genuinely did not provide it is\n  CORRECT behaviour and scores 5 on faithfulness, not a completeness penalty.\n- Be strict. Do not award 5 by default. If you cannot point to specific evidence for a\n  5, award 4.\n- overall_score is the arithmetic mean of the five criteria, rounded to one decimal.\n- verdict is \"PASS\" if overall_score >= 4.0 AND faithfulness >= 4, otherwise \"REVIEW\".\n\nOUTPUT FORMAT\nReturn ONLY a JSON object, no markdown fences, no commentary:\n{\n  \"faithfulness\": integer,\n  \"completeness\": integer,\n  \"conciseness\": integer,\n  \"actionability\": integer,\n  \"classification\": integer,\n  \"overall_score\": number,\n  \"verdict\": \"PASS\" or \"REVIEW\",\n  \"justification\": string (max 40 words, cite the specific weakness or confirm the strength)\n}"
+            },
+            {
+              "role": "user",
+              "content": "=RAW TICKET:\n{{ $('Loop Over Tickets').item.json.support_ticket_desc }}\n\nGENERATED SUMMARY RECORD:\n{{ JSON.stringify($json.message.content) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "simplify": true,
+        "options": {
+          "temperature": 0.0,
+          "maxTokens": 400
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1280,
+        560
+      ],
+      "id": "b745bb63-960b-45b8-8951-28331d551433",
+      "name": "Judge Summary",
+      "credentials": {
+        "openAiApi": {
+          "id": "SHOPNEST_OPENAI",
+          "name": "ShopNest OpenAI account"
+        }
+      },
+      "notes": "RUBRIC 3: LLM-as-a-Judge on the summary. temp 0 - scores must be reproducible.",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a senior customer support agent at ShopNest Global. You draft the FIRST reply\nto a customer. A human agent reviews and sends your draft, so it must be safe to send\nas written. You are given the customer's raw ticket and the structured triage record\nproduced by the summarisation stage.\n\n=====================  SHOPNEST SUPPORT POLICY  =====================\nYou may ONLY promise what these policies allow. If a customer asks for something no\npolicy covers, acknowledge the request and say a specialist will confirm. Never invent\na policy, a timeframe, a refund amount or a delivery date.\n\nP1  REFUNDS. Approved refunds post to the original payment method in 3-5 business days.\n    Never promise faster. If the customer is already past 5 business days, apologise,\n    confirm it is outside the published window, and state it is being escalated to the\n    Billing team.\nP2  RETURN WINDOW. 10 days from delivery for Electronics and Home Appliances. 30 days\n    for Fashion. Groceries and perishables are not returnable. An item that arrived\n    damaged, defective or dead on arrival can be returned within the 10-day window and\n    always qualifies for free pickup.\nP3  WRONG, DAMAGED OR DEAD-ON-ARRIVAL ITEMS. The customer chooses either a replacement\n    or a full refund. Free return pickup is arranged. The customer never pays return\n    shipping. Do not ask them to drop the item off.\nP4  NON-DELIVERY. If tracking has not moved for more than 48 hours, or shows delivered\n    but the customer did not receive it, a carrier trace is opened. A trace takes up to\n    3 business days, after which the order is automatically reshipped or refunded at the\n    customer's choice.\nP5  PAYMENTS. Pre-authorisation holds from a failed transaction are released by the\n    issuing bank within 5-7 business days; ShopNest can request an immediate void.\n    Duplicate charges are reversed within 1 business day of confirmation.\nP6  ADDRESS CHANGES. Possible only while the order has not yet been dispatched. After\n    dispatch, request a carrier redirect - do not promise it will succeed.\nP7  GOODWILL. You may NOT offer compensation, discounts, vouchers, store credit or\n    goodwill gestures. Only a human agent can authorise those. If the customer demands\n    one, say the request has been passed to a specialist for review.\nP8  LEGAL AND REGULATORY THREATS. Never admit or deny liability, never reference the\n    threat, never argue. Acknowledge the frustration, confirm the issue is being\n    escalated, and move to the practical next step.\nP9  DELIVERY DATES. Never state a delivery date that tracking has not already confirmed.\nP10 MISSING INFORMATION. If the triage record lists missing_info, ask for those fields\n    and only those, at most three, as a short bulleted list.\n=====================================================================\n\nTONE\n- Match the customer. Angry or Frustrated: open with a direct apology and take\n  ownership, no defensiveness, no excuses about volume or systems.\n  Polite, Neutral or Positive: warm and brief, thank them, do not over-apologise.\n- Never blame the customer, the carrier, the seller or another department.\n- Plain English. No corporate filler, no \"we value your business\", no emojis, no\n  exclamation marks.\n\nSTRUCTURE - 110 to 180 words\n1. Greeting: \"Hi there,\" (no name is available).\n2. Acknowledge the specific problem in one sentence, using the order ID if known.\n3. State exactly what happens next and the timeframe, taken from the policies above.\n4. Only if needed, a short bulleted list of the missing details you need.\n5. Close: \"Thanks for your patience,\" then \"ShopNest Support Team\".\n\nOUTPUT FORMAT\nReturn ONLY a JSON object, no markdown fences, no commentary:\n{\n  \"response_text\": string (the full reply, newlines allowed),\n  \"next_step\": string (one short sentence, internal use),\n  \"policies_applied\": array of policy codes, e.g. [\"P3\",\"P2\"],\n  \"requires_human_review\": boolean,\n  \"review_reason\": string (\"\" when false)\n}\n\nSet requires_human_review to true when the triage record has escalation_risk High, when\nthe customer threatens legal or regulatory action, when they demand compensation, or\nwhen issue_category is \"Unclear\"."
+            },
+            {
+              "role": "user",
+              "content": "=RAW TICKET:\n{{ $('Loop Over Tickets').item.json.support_ticket_desc }}\n\nTRIAGE RECORD:\n{{ JSON.stringify($('Summarise Ticket').item.json.message.content) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "simplify": true,
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 700
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1580,
+        560
+      ],
+      "id": "ce53ef8b-f641-441f-b688-7db2efa1208a",
+      "name": "Generate Response",
+      "credentials": {
+        "openAiApi": {
+          "id": "SHOPNEST_OPENAI",
+          "name": "ShopNest OpenAI account"
+        }
+      },
+      "notes": "RUBRIC 4: Response Generation. temp 0.4 - natural tone, policies still binding.",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an impartial quality evaluator (LLM-as-a-Judge) auditing the response-generation\nstage of ShopNest Global's ticket intelligence pipeline. You did not write the draft and\nyou have no stake in it. You will be shown the ORIGINAL raw ticket, the triage record,\nand the GENERATED customer reply.\n\nYou are auditing, not rewriting. Do not produce an improved reply.\n\nTHE POLICIES THE DRAFT MUST OBEY\nP1  Refunds post in 3-5 business days. Never faster.\nP2  Return window: 10 days Electronics and Home Appliances, 30 days Fashion, Groceries\n    not returnable. Damaged or defective items get free pickup.\nP3  Wrong, damaged or dead-on-arrival: customer chooses replacement or full refund, free\n    pickup, customer never pays return shipping and is never asked to drop off.\nP4  Non-delivery: carrier trace, up to 3 business days, then reship or refund.\nP5  Pre-authorisation holds release in 5-7 business days; duplicate charges reversed\n    within 1 business day.\nP6  Address changes only before dispatch; after dispatch only a carrier redirect, not\n    guaranteed.\nP7  No compensation, discount, voucher, store credit or goodwill may be offered.\nP8  No admission or denial of liability, no engagement with legal threats.\nP9  No delivery date that tracking has not confirmed.\nP10 Ask only for genuinely missing details, at most three.\n\nSCORING CRITERIA - score each 1 to 5 (integers only)\n1. relevance         - Does it address the actual issue in THIS ticket, not a generic\n                       one? 5 = names the specific problem and order. 1 = boilerplate.\n2. empathy_and_tone  - Is the emotional register right for this customer's sentiment?\n                       5 = matched. 3 = generic but inoffensive.\n                       1 = defensive, cold to an angry customer, or over-apologetic to a\n                       happy one.\n3. policy_compliance - Does it obey every policy above?\n                       Start at 5 and deduct 2 for each violation.\n                       ANY of these caps the score at 1: promising a refund faster than\n                       3-5 business days, offering compensation or a discount, stating\n                       an unconfirmed delivery date, admitting liability, asking the\n                       customer to pay for or drop off a return.\n4. clarity_of_next_step - Is there exactly one unambiguous next action with a timeframe?\n                       5 = yes. 3 = vague timeframe. 1 = no next step at all.\n5. factual_safety    - Does it invent an order ID, product, price, date or fact not in\n                       the ticket or triage record?\n                       5 = nothing invented. 1 = any invented specific.\n6. professionalism   - Structure, length 110-180 words, no emojis, no exclamation marks,\n                       correct sign-off. 5 = clean. 1 = unsendable as written.\n\nRULES\n- Judge ONLY against the ticket, the triage record and the policies above.\n- Asking for missing details is CORRECT when the ticket lacks them. Do not penalise it.\n- Declining to offer compensation is CORRECT (P7). Never penalise the draft for\n  refusing to offer goodwill.\n- Be strict. Do not award 5 by default. If you cannot cite specific evidence for a 5,\n  award 4.\n- overall_score is the arithmetic mean of the six criteria, rounded to one decimal.\n- verdict is \"PASS\" if overall_score >= 4.0 AND policy_compliance >= 4 AND\n  factual_safety >= 4. Otherwise \"REVIEW\".\n- List every policy the draft broke in policy_violations, by code. Empty array if none.\n\nOUTPUT FORMAT\nReturn ONLY a JSON object, no markdown fences, no commentary:\n{\n  \"relevance\": integer,\n  \"empathy_and_tone\": integer,\n  \"policy_compliance\": integer,\n  \"clarity_of_next_step\": integer,\n  \"factual_safety\": integer,\n  \"professionalism\": integer,\n  \"overall_score\": number,\n  \"verdict\": \"PASS\" or \"REVIEW\",\n  \"policy_violations\": array of strings,\n  \"justification\": string (max 40 words)\n}"
+            },
+            {
+              "role": "user",
+              "content": "=RAW TICKET:\n{{ $('Loop Over Tickets').item.json.support_ticket_desc }}\n\nTRIAGE RECORD:\n{{ JSON.stringify($('Summarise Ticket').item.json.message.content) }}\n\nGENERATED CUSTOMER REPLY:\n{{ JSON.stringify($json.message.content) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "simplify": true,
+        "options": {
+          "temperature": 0.0,
+          "maxTokens": 400
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1880,
+        560
+      ],
+      "id": "84f5fb5a-51ba-4eb1-b875-ad58088f2add",
+      "name": "Judge Response",
+      "credentials": {
+        "openAiApi": {
+          "id": "SHOPNEST_OPENAI",
+          "name": "ShopNest OpenAI account"
+        }
+      },
+      "notes": "RUBRIC 5: LLM-as-a-Judge on the reply, including policy compliance. temp 0.",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// RUBRIC 6: Output & Compilation - one flat record per ticket carrying the ticket\n// ID, the raw text, the generated summary, the generated response and every judge\n// score.\n//\n// Defensive on purpose: the OpenAI node parses JSON for us, but if a model ever\n// returns prose instead of JSON the field stays a string. That has to be recorded\n// as a failed row, not crash the run and not written out as a silent blank.\nfunction asObject(value) {\n  if (value && typeof value === 'object') return value;\n  if (typeof value === 'string') {\n    try { return JSON.parse(value.replace(/^```(?:json)?|```$/g, '').trim()); }\n    catch (e) { return null; }\n  }\n  return null;\n}\nfunction content(nodeName) {\n  try { return asObject($(nodeName).item.json.message?.content); }\n  catch (e) { return null; }\n}\n\n// Parsing is not enough. A model can return perfectly valid JSON of completely\n// the wrong shape - during build-out a misrouted call returned {\"error\": ...},\n// which parsed fine and then wrote a row of silent blank score columns with no\n// error recorded anywhere. So every stage is checked for the keys it MUST have,\n// and a shape miss is a logged failure like any other.\nconst REQUIRED = {\n  summary:  ['order_id', 'issue_category', 'summary', 'urgency', 'sentiment'],\n  sJudge:   ['faithfulness', 'completeness', 'conciseness', 'actionability',\n             'classification', 'overall_score', 'verdict'],\n  reply:    ['response_text', 'next_step', 'policies_applied'],\n  rJudge:   ['relevance', 'empathy_and_tone', 'policy_compliance',\n             'clarity_of_next_step', 'factual_safety', 'professionalism',\n             'overall_score', 'verdict'],\n};\nfunction missingKeys(obj, keys) {\n  return obj ? keys.filter(k => obj[k] === undefined || obj[k] === null) : keys;\n}\n\nconst ticket  = $('Loop Over Tickets').item.json;\nconst summary = content('Summarise Ticket');\nconst sJudge  = content('Judge Summary');\nconst reply   = content('Generate Response');\nconst rJudge  = content('Judge Response');\n\nconst failures = [];\nfor (const [label, obj] of [['summary', summary], ['summary_judge', sJudge],\n                            ['response', reply], ['response_judge', rJudge]]) {\n  const req = REQUIRED[{summary: 'summary', summary_judge: 'sJudge',\n                        response: 'reply', response_judge: 'rJudge'}[label]];\n  if (!obj) { failures.push(`${label}_unparseable`); continue; }\n  const missing = missingKeys(obj, req);\n  if (missing.length) failures.push(`${label}_missing:${missing.join('/')}`);\n}\n\nconst list = (v) => Array.isArray(v) ? v.join('; ') : (v ?? '');\n\n// A row goes to the human queue if EITHER judge said REVIEW, or the response stage\n// flagged itself, or any stage failed to parse. Fail closed: when in doubt a human\n// looks at it.\nconst needsReview =\n  failures.length > 0 ||\n  sJudge?.verdict === 'REVIEW' ||\n  rJudge?.verdict === 'REVIEW' ||\n  reply?.requires_human_review === true;\n\nreturn [{ json: {\n  support_ticket_id:      ticket.support_ticket_id,\n  raw_ticket_text:        ticket.support_ticket_desc,\n  raw_word_count:         ticket.word_count,\n\n  order_id:               summary?.order_id ?? '',\n  issue_category:         summary?.issue_category ?? '',\n  product:                summary?.product ?? '',\n  customer_request:       summary?.customer_request ?? '',\n  generated_summary:      summary?.summary ?? '',\n  urgency:                summary?.urgency ?? '',\n  sentiment:              summary?.sentiment ?? '',\n  escalation_risk:        summary?.escalation_risk ?? '',\n  missing_info:           list(summary?.missing_info),\n\n  sum_faithfulness:       sJudge?.faithfulness ?? '',\n  sum_completeness:       sJudge?.completeness ?? '',\n  sum_conciseness:        sJudge?.conciseness ?? '',\n  sum_actionability:      sJudge?.actionability ?? '',\n  sum_classification:     sJudge?.classification ?? '',\n  sum_overall_score:      sJudge?.overall_score ?? '',\n  sum_verdict:            sJudge?.verdict ?? '',\n  sum_justification:      sJudge?.justification ?? '',\n\n  generated_response:     reply?.response_text ?? '',\n  next_step:              reply?.next_step ?? '',\n  policies_applied:       list(reply?.policies_applied),\n\n  resp_relevance:         rJudge?.relevance ?? '',\n  resp_empathy_and_tone:  rJudge?.empathy_and_tone ?? '',\n  resp_policy_compliance: rJudge?.policy_compliance ?? '',\n  resp_clarity_next_step: rJudge?.clarity_of_next_step ?? '',\n  resp_factual_safety:    rJudge?.factual_safety ?? '',\n  resp_professionalism:   rJudge?.professionalism ?? '',\n  resp_overall_score:     rJudge?.overall_score ?? '',\n  resp_verdict:           rJudge?.verdict ?? '',\n  resp_policy_violations: list(rJudge?.policy_violations),\n  resp_justification:     rJudge?.justification ?? '',\n\n  pipeline_errors:        list(failures),\n  needs_human_review:     needsReview ? 'YES' : 'NO',\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        560
+      ],
+      "id": "83507d90-8cab-47bc-9fb3-e5e939b7b35d",
+      "name": "Consolidate Ticket Record",
+      "notes": "Flattens 4 LLM outputs into one row. Unparseable output is logged, not swallowed.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {
+          "fileName": "shopnest_ticket_intelligence_output.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        980,
+        100
+      ],
+      "id": "eda821cf-c23f-45de-95cd-d190d8f607f7",
+      "name": "Build Consolidated CSV",
+      "notes": "RUBRIC 6: all 30 rows, every column, one file.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Pipeline Config').first().json.output_dir }}/shopnest_ticket_intelligence_output.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        100
+      ],
+      "id": "7fa6f099-dba9-4295-b86e-75ce91994468",
+      "name": "Save Consolidated CSV",
+      "notes": "The single consolidated deliverable file.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "review-cond",
+              "leftValue": "={{ $json.needs_human_review }}",
+              "rightValue": "YES",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        980,
+        -100
+      ],
+      "id": "1b61c9d8-ac11-4ddf-8d66-4fafd2cce5c8",
+      "name": "Filter Human Review Queue",
+      "notes": "Rows either judge marked REVIEW, plus anything that failed to parse.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {
+          "fileName": "shopnest_human_review_queue.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        -100
+      ],
+      "id": "c4944b77-0671-4b0d-85c9-f9fdc6167c6a",
+      "name": "Build Review Queue CSV"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Pipeline Config').first().json.output_dir }}/shopnest_human_review_queue.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        -100
+      ],
+      "id": "ccc493e4-ae53-4bef-909f-daca86829db3",
+      "name": "Save Review Queue CSV",
+      "notes": "The low-confidence / failed-row log the support lead works through.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// RUBRIC 7: Business Insights - aggregate the run into the numbers that go on the\n// recommendation slide. Every figure is computed from this run, never hard-coded.\nconst rows = $input.all().map(i => i.json);\nconst n = rows.length;\nconst num = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);\nconst mean = (key) => {\n  const vals = rows.map(r => num(r[key])).filter(v => v !== null && !Number.isNaN(v));\n  return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : null;\n};\nconst countBy = (key) => rows.reduce((acc, r) => {\n  const k = r[key] || 'UNKNOWN';\n  acc[k] = (acc[k] || 0) + 1;\n  return acc;\n}, {});\nconst tally = (arr) => arr.reduce((acc, v) => { acc[v] = (acc[v] || 0) + 1; return acc; }, {});\nconst pct = (c) => n ? +((c / n) * 100).toFixed(1) : 0;\n\nconst sumPass    = rows.filter(r => r.sum_verdict === 'PASS').length;\nconst respPass   = rows.filter(r => r.resp_verdict === 'PASS').length;\nconst review     = rows.filter(r => r.needs_human_review === 'YES').length;\nconst errored    = rows.filter(r => r.pipeline_errors).length;\nconst violations = rows.flatMap(r => String(r.resp_policy_violations || '').split('; ').filter(Boolean));\nconst noOrderId  = rows.filter(r => !r.order_id || r.order_id === 'NOT_PROVIDED').length;\n\n// Agents currently spend ~2.5 min decoding each ticket before any work starts.\n// Tickets that clear both judges need no decode time at all.\nconst autoApproved = n - review;\n\nreturn [{ json: {\n  tickets_processed:              n,\n  rows_with_pipeline_errors:      errored,\n  avg_raw_ticket_words:           mean('raw_word_count'),\n\n  summary_avg_score:              mean('sum_overall_score'),\n  summary_pass_rate_pct:          pct(sumPass),\n  summary_avg_faithfulness:       mean('sum_faithfulness'),\n  summary_avg_completeness:       mean('sum_completeness'),\n  summary_avg_conciseness:        mean('sum_conciseness'),\n  summary_avg_actionability:      mean('sum_actionability'),\n  summary_avg_classification:     mean('sum_classification'),\n\n  response_avg_score:             mean('resp_overall_score'),\n  response_pass_rate_pct:         pct(respPass),\n  response_avg_relevance:         mean('resp_relevance'),\n  response_avg_empathy:           mean('resp_empathy_and_tone'),\n  response_avg_policy_compliance: mean('resp_policy_compliance'),\n  response_avg_clarity:           mean('resp_clarity_next_step'),\n  response_avg_factual_safety:    mean('resp_factual_safety'),\n  response_avg_professionalism:   mean('resp_professionalism'),\n  policy_violations_total:        violations.length,\n  policy_violations_by_code:      tally(violations),\n\n  auto_approved_tickets:          autoApproved,\n  auto_approval_rate_pct:         pct(autoApproved),\n  human_review_queue:             review,\n  human_review_rate_pct:          pct(review),\n\n  tickets_missing_order_id:       noOrderId,\n  tickets_missing_order_id_pct:   pct(noOrderId),\n\n  issue_category_mix:             countBy('issue_category'),\n  urgency_mix:                    countBy('urgency'),\n  sentiment_mix:                  countBy('sentiment'),\n  escalation_risk_mix:            countBy('escalation_risk'),\n\n  est_agent_minutes_saved_this_run: +(autoApproved * 2.5).toFixed(1),\n  est_agent_hours_saved_per_5000:   +((autoApproved / (n || 1)) * 5000 * 2.5 / 60).toFixed(1),\n  est_agent_hours_saved_per_15000:  +((autoApproved / (n || 1)) * 15000 * 2.5 / 60).toFixed(1),\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        -300
+      ],
+      "id": "3e3fd181-3964-4cf3-92b1-f1f791c4c6b4",
+      "name": "Pipeline Quality Stats",
+      "notes": "RUBRIC 7: the numbers behind the business recommendations.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "Run Pipeline (On Demand)": {
+      "main": [
+        [
+          {
+            "node": "Pipeline Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline Config": {
+      "main": [
+        [
+          {
+            "node": "Read Ticket CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Ticket CSV": {
+      "main": [
+        [
+          {
+            "node": "Parse CSV to Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CSV to Rows": {
+      "main": [
+        [
+          {
+            "node": "Clean & Profile Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean & Profile Tickets": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Tickets": {
+      "main": [
+        [
+          {
+            "node": "Build Consolidated CSV",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter Human Review Queue",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pipeline Quality Stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarise Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise Ticket": {
+      "main": [
+        [
+          {
+            "node": "Judge Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge Summary": {
+      "main": [
+        [
+          {
+            "node": "Generate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Response": {
+      "main": [
+        [
+          {
+            "node": "Judge Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge Response": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Ticket Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidate Ticket Record": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Consolidated CSV": {
+      "main": [
+        [
+          {
+            "node": "Save Consolidated CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Human Review Queue": {
+      "main": [
+        [
+          {
+            "node": "Build Review Queue CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Queue CSV": {
+      "main": [
+        [
+          {
+            "node": "Save Review Queue CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

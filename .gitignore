@@ -1,0 +1,8 @@
+.n8n-home/
+node_modules/
+*.log
+mock.pid
+test/
+run_n8n_ui.sh
+cred_mock.json
+output_fault/
