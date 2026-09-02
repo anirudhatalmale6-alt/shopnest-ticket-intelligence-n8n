@@ -91,6 +91,45 @@ reply.
 
 ---
 
+## Which n8n version this needs
+
+Built on n8n 2.35, but every node is deliberately pinned to an older `typeVersion`
+so it imports into 1.x instances too:
+
+| Node | typeVersion |
+|---|---|
+| `manualTrigger` | 1 |
+| `set` | 3.4 |
+| `readWriteFile` ×3 | 1 |
+| `extractFromFile` | 1 |
+| `code` ×3 | 2 |
+| `splitInBatches` | 3 |
+| `@n8n/n8n-nodes-langchain.openAi` ×4 | 1.8 |
+| `convertToFile` ×2 | 1.1 |
+| `filter` | 2.2 |
+
+The binding constraint is the OpenAI node at 1.8, so **anything from roughly n8n
+1.60 onward will import cleanly.** If a node shows up as unrecognised after
+import, the instance is older than that — send me the version from the bottom-left
+of the n8n screen and I'll downgrade the affected nodes.
+
+## Which LLM credential
+
+n8n does not do the summarising itself — it calls out to a provider. The four
+OpenAI nodes need a credential. In order of preference:
+
+1. **A credential the lab already provides.** Check Credentials in the left
+   sidebar for an existing "OpenAI account" before doing anything else.
+2. **n8n's own free AI credits**, if the trial offers them in the credential
+   dropdown.
+3. **Your own key** from platform.openai.com, only if neither exists.
+
+Cost is not the issue: 30 tickets × 4 calls = 120 calls on `gpt-4o-mini` is a few
+cents. The only friction is OpenAI's minimum top-up.
+
+A different provider is a node swap, not a rebuild — the prompts and the whole
+downstream graph are provider-agnostic.
+
 ## Running it
 
 ### 1. Import
