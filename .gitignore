@@ -6,3 +6,7 @@ test/
 run_n8n_ui.sh
 cred_mock.json
 output_fault/
+deck/*.jpg
+deck/*.pdf
+deck/working.pptx
+deck/template.pptx
