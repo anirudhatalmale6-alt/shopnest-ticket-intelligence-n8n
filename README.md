@@ -1,263 +1,229 @@
-# ShopNest Global — AI Ticket Intelligence POC (n8n)
+# ShopNest Global — AI Ticket Intelligence (n8n, no-code track)
 
-An n8n workflow that reads raw customer support tickets, summarises each one,
-drafts a customer reply, scores **both** with an LLM-as-a-Judge, and writes a
-single consolidated file plus a human-review queue.
+An n8n workflow that reads 30 raw customer support tickets and, for each one,
+produces a summary, an LLM-as-a-Judge score for that summary, a policy-grounded
+customer reply, and an LLM-as-a-Judge score for that reply — then writes
+everything to a single consolidated CSV.
 
-Built for the No-Code track of the Support Ticket Analysis project.
-
----
-
-## ⚠️ Read this first — what is and is not proven
-
-| Thing | Status |
-|---|---|
-| Workflow graph executes end to end, 30/30 tickets | **Proven** — run from the n8n UI, every node green |
-| All 35 output columns populated in all 30 rows | **Proven** — verified by reading the CSV |
-| Error logging catches bad LLM output | **Proven** — by deliberate fault injection, see below |
-| Consolidated CSV + review-queue CSV written to disk | **Proven** |
-| **Quality of the summaries, replies and judge scores** | **NOT PROVEN** |
-
-Every test run so far used a **mock OpenAI endpoint** (`mock_openai_server.py`),
-because no OpenAI API key was available during the build. The mock returns
-correctly-shaped JSON built from regex heuristics — enough to prove every wire,
-expression and file write, and nothing at all about how good the model output is.
-
-**That is why every generated field in the sample output says `[MOCK]`.**
-Point the credential at a real key and re-run to get real content. Nothing in the
-workflow changes — only the credential.
+Built for the Great Learning *Generative and Agentic AI Foundations* project,
+**no-code (n8n) track**.
 
 ---
 
-## What it does
+## What is and is not proven
 
-```
-Manual Trigger
-  └─ Pipeline Config            ← the only node you edit per environment
-      └─ Read Ticket CSV
-          └─ Parse CSV to Rows                      (RUBRIC 1: Data Loading)
-              └─ Clean & Profile Tickets
-                  └─ Loop Over Tickets  ── per ticket ──┐
-                                                        │
-        ┌───────────────────────────────────────────────┘
-        │  Summarise Ticket        gpt-4o-mini, temp 0.2  (RUBRIC 2)
-        │  Judge Summary           gpt-4o-mini, temp 0.0  (RUBRIC 3)
-        │  Generate Response       gpt-4o-mini, temp 0.4  (RUBRIC 4)
-        │  Judge Response          gpt-4o-mini, temp 0.0  (RUBRIC 5)
-        │  Consolidate Ticket Record                      (RUBRIC 6)
-        └──────────────── back to Loop ─────────────────┘
-
-  after all 30 tickets, the loop's "done" output fans out to three branches:
-      • Build + Save Consolidated CSV      → all 30 rows, 35 columns
-      • Filter → Build + Save Review Queue → only rows needing a human
-      • Pipeline Quality Stats             → the numbers for RUBRIC 7
-```
-
-## Design decisions worth explaining in the deck
-
-**Model — `gpt-4o-mini` on all four calls.** These are bounded extraction,
-classification and short-form writing tasks against a fixed policy set, not open
-reasoning. A larger model costs several times more per ticket, and at ShopNest's
-peak of 15,000 tickets/day × 4 calls that difference dominates the business case.
-Start small; the judge scores tell you objectively whether you need to upgrade,
-which is the whole point of building evaluation in from day one.
-
-**Temperature is different at every stage, on purpose.**
-- Summarise `0.2` — extraction. Creativity here means invented order IDs.
-- Judges `0.0` — a score that changes between runs is not a measurement. Graders
-  and auditors need the same ticket to produce the same score.
-- Respond `0.4` — enough variation for natural, non-robotic prose, while the
-  system message keeps every policy binding.
-
-**Prompting technique — role-based zero-shot with a strict JSON schema and
-explicit negative rules.** Few-shot was deliberately rejected: with 12 issue
-categories and highly varied ticket styles, any small set of examples biases the
-model toward the shapes it was shown. Instead each system message pins a role, an
-exhaustive enum, a hard "never invent" rule, and an exact output schema. The
-`NOT_PROVIDED` convention means the model has a correct answer available when a
-field is genuinely absent, which is what stops it hallucinating an order ID.
-
-**Two judges, not one.** Summarisation and response generation fail in different
-ways — a summary fails by being unfaithful or unactionable, a reply fails by
-breaking policy or inventing a promise. One shared rubric would measure neither
-well. Both judges are told they are auditing, not rewriting, and are explicitly
-instructed not to penalise correct behaviour (marking a field `NOT_PROVIDED`,
-declining to offer compensation, asking for missing details).
-
-**Fail closed.** Any row where either judge says `REVIEW`, or the response stage
-self-flags, or any stage returned unusable output, goes to the human queue. The
-system's job is to save agent time on the easy 80%, never to quietly send a bad
-reply.
-
----
-
-## Which n8n version this needs
-
-Built on n8n 2.35, but every node is deliberately pinned to an older `typeVersion`
-so it imports into 1.x instances too:
-
-| Node | typeVersion |
-|---|---|
-| `manualTrigger` | 1 |
-| `set` | 3.4 |
-| `readWriteFile` ×3 | 1 |
-| `extractFromFile` | 1 |
-| `code` ×3 | 2 |
-| `splitInBatches` | 3 |
-| `@n8n/n8n-nodes-langchain.openAi` ×4 | 1.8 |
-| `convertToFile` ×2 | 1.1 |
-| `filter` | 2.2 |
-
-The binding constraint is the OpenAI node at 1.8, so **anything from roughly n8n
-1.60 onward will import cleanly.** If a node shows up as unrecognised after
-import, the instance is older than that — send me the version from the bottom-left
-of the n8n screen and I'll downgrade the affected nodes.
-
-## Which LLM credential
-
-n8n does not do the summarising itself — it calls out to a provider, and the four
-OpenAI nodes need a credential to do that.
-
-**In the Great Learning lab this is already provided.** Credentials shows two:
-
-| Credential | Type | Use |
+| Claim | Status | How it was checked |
 |---|---|---|
-| `Great Learning AI (OpenAI + Gemini)` | OpenAI | **this one** — select it in all four OpenAI nodes |
-| `Great Learning AI (Gemini)` | Google Gemini(PaLM) | only needed if the nodes are swapped to Gemini |
+| The graph runs end to end on all 30 tickets | **Proven** | CLI execution; 120 endpoint calls, exactly 30 per stage |
+| Every expression resolves; no blank columns | **Proven** | `verify_output.py` — 14/14 columns populated on all 30 rows |
+| Scores land inside their declared range | **Proven** | `verify_output.py` range check |
+| `overall_score` really is the sum of its parts | **Proven** | `verify_output.py` arithmetic check |
+| The CSV has the columns the brief names | **Proven** | `verify_output.py` required-column check |
+| **The quality of the generated text** | **NOT proven** | every run so far used the mock endpoint |
 
-Nothing to create and nothing to pay for. Open each of the four OpenAI nodes and
-pick the OpenAI-type credential from the dropdown.
+The last row is the important one. No real LLM has run through this yet, because
+no API key was available on the build machine. Every generated field currently
+reads `[MOCK]` **on purpose**, so a mock result can never be mistaken for a real
+one. Swapping in the lab credential changes no wiring — see below.
 
-### If the model name is rejected
+---
 
-A lab credential may point at a proxy that serves different model names. The model
-is therefore **one setting, not four**: open `Pipeline Config` and edit `model`.
-All four LLM nodes read it via an expression, so one edit changes every call.
+## Architecture — and why it is what it is
 
-This is verified, not assumed — setting `model` to a sentinel value and re-running
-showed all 120 endpoint calls carrying the new name, with output otherwise
-identical (30 rows, 35 columns, same 6 tickets queued for review).
+The node-by-node structure is **not** a design choice. It follows the Great
+Learning *Project 1 Solution Approach & Guidelines* document exactly, because
+the marking scheme checks screenshots against it.
 
-Because the model is an expression, the node shows the model field in **By ID**
-mode rather than as a dropdown list. That is expected — do not switch it back to
-list mode or it will stop reading `Pipeline Config`.
+```
+Run Pipeline (Manual Trigger)
+  └─ 1. Read Ticket CSV          Read/Write Files from Disk
+     └─ 2. Extract Ticket Data   Extract from File (CSV)   → 30 items
+        └─ 3. Summarization                  Basic LLM Chain
+        └─ 4. Evaluation for Summarization   Basic LLM Chain
+        └─ 5. Response Generation            Basic LLM Chain
+        └─ 6. Evaluation for Response Gen.   Basic LLM Chain
+           └─ 7. Extract the Outputs   Edit Fields (manual mapping)
+              └─ 8. Convert to File    → CSV
+                 └─ 9. Save the Data   Read/Write Files from Disk
+```
 
-Cost is not a concern either way: 30 tickets × 4 calls = 120 calls on a small
-model is a few cents.
+Each of the four Basic LLM Chains carries two sub-nodes, again as prescribed: an
+**OpenAI Chat Model** and a **Structured Output Parser** (schema type *Manual*).
+18 nodes in total.
 
-A different provider is a node swap, not a rebuild — the prompts and the whole
-downstream graph are provider-agnostic.
+There is no loop node. n8n's chain nodes process every input item, so 30 tickets
+in gives 30 items out at every stage.
 
-## Running it
+### Field names are fixed by the brief
+
+The evaluation criteria and output columns are taken **verbatim** from the
+guidelines. Do not rename them:
+
+| Stage | Schema fields |
+|---|---|
+| Summarization | `summary` |
+| Evaluation for Summarization | `information_extraction_score`, `information_extraction_reasoning`, `field_coverage_score`, `field_coverage_reasoning` |
+| Response Generation | `response` |
+| Evaluation for Response Generation | `issue_addressal_score`, `issue_addressal_reasoning`, `resolution_clarity_score`, `resolution_clarity_reasoning`, `overall_score`, `overall_reasoning` |
+
+Scores run **1–3** per criterion, and `overall_score` is the sum of the two
+response criteria, so 2–6. The 1–3 scale is not invented — it comes from the
+course's own reference notebook: *"LLM-as-Judge scores Information Extraction
+and Field Coverage (each 1-3)"*.
+
+### Temperature is set per stage, deliberately
+
+| Stage | Temp | Reason |
+|---|---|---|
+| Summarization | 0.2 | Summarising is extraction. Creative variation here appears as invented detail. |
+| Both judges | 0.0 | A score that changes between runs cannot be used to track quality over time. |
+| Response Generation | 0.4 | Enough variation for natural, non-templated warmth. Policy is enforced by the prompt, not by low entropy. |
+
+---
+
+## The policies are the real ones
+
+The four ShopNest policies in `prompts/03_respond_system.txt` are transcribed
+from the guidelines PDF. An earlier draft of this project used **invented**
+policies inferred from the tickets; those have been deleted.
+
+The policies live in **two files** — the generator (`03`) and the judge's mirror
+(`04`). Change them together, or the judge will score replies against rules the
+generator never saw.
+
+---
+
+## Running it in the Great Learning lab
 
 ### 1. Import
-n8n → Workflows → Import from File → `ShopNest_Ticket_Intelligence.json`
+`ShopNest_Ticket_Intelligence.json` → in n8n, **⋯ → Import from File**.
+All 18 nodes appear already wired.
 
-### 2. Set the OpenAI credential
-Open each of the four OpenAI nodes and pick your credential from the dropdown —
-in the Great Learning lab that is `Great Learning AI (OpenAI + Gemini)`. The
-exported JSON references a credential ID (`SHOPNEST_OPENAI`) that will not exist
-in your instance — this is expected, you just select yours.
+### 2. Pick the credential
+Open each of the four **OpenAI Chat Model** sub-nodes and select
+`Great Learning AI (OpenAI + Gemini)` from the dropdown. The lab provides it —
+nothing to create, nothing to pay for. The JSON references a placeholder
+credential ID that will not exist in your instance; that is expected.
 
-### 3. Point at your data
-Open **Pipeline Config** — the only node you edit — and set:
-- `input_csv_path` → where `support_ticket_data.csv` lives
-- `output_dir` → an existing, writable folder
-- `model` → leave as `gpt-4o-mini` unless the credential rejects that name
+### 3. Set the two file paths
+Only two nodes hold a path, and both are marked *EDIT ME*:
 
-Defaults are `/data/support_ticket_data.csv` and `/data/output`, which is the
-standard mount in a Docker n8n. **Create the output folder first** — n8n will not
-create it for you.
+- **Read Ticket CSV** → `fileSelector`
+- **Save the Data** → `fileName`
 
-If reads fail with *"Access to the file is not allowed"*, your instance has
-`N8N_RESTRICT_FILE_ACCESS_TO` set. Put the CSV inside the allowed folder, or use
-paths that resolve inside it. Note n8n resolves symlinks, so use the real path.
+Use the lab's own convention, `/data/learner-<your-lab-id>/files/…`. The
+guidelines describe how to find your lab id: upload the dataset via **Manage
+Files**, then use **Copy Path** on any existing file and replace the filename.
 
-### 4. Run
-Click **Execute workflow**. 30 tickets × 4 LLM calls = 120 calls, so expect a few
-minutes on a real endpoint.
+### 4. Execute, then verify
+Press **Execute Workflow**. Then download the output CSV and run:
 
-Two files land in `output_dir`:
-- `shopnest_ticket_intelligence_output.csv` — 30 rows × 35 columns
-- `shopnest_human_review_queue.csv` — the subset a human must check
+```
+python3 verify_output.py <the-csv> --rows 30
+```
 
-### 5. To run nightly instead
-Replace **Run Pipeline (On Demand)** with a Schedule Trigger and connect it to
-**Pipeline Config**. Nothing else changes.
+**Do not skip this.** See below for why an all-green run is not evidence.
+
+---
+
+## Why `verify_output.py` exists
+
+n8n's Structured Output Parser validates the model's reply against a schema
+wrapped in an `output` key. When the reply does not match that shape, **the
+parser does not raise an error** — it strips the unrecognised keys and returns
+an empty object.
+
+That empty object flows through the rest of the graph perfectly happily. Every
+node turns green, the execution reports `success`, the CSV is written with
+exactly 30 rows — and every generated column is blank.
+
+This happened during build-out and it is completely silent. An execution status
+is not evidence that the pipeline produced anything. `verify_output.py` checks
+the artefact instead: row count, required columns, no column blank across all
+rows, no blank cell in a required column, every score inside its range,
+`overall_score` equal to the sum of its parts, and whether the run was mocked.
 
 ---
 
 ## Editing the prompts
 
-The four system messages live in `prompts/` as plain text. Edit them there, then:
+The four system messages are plain text under `prompts/`, so they can be edited
+without touching the workflow JSON:
 
-```bash
-python3 build_workflow.py                    # regenerates the shipping JSON
-python3 build_workflow.py --local <dir>      # test copy -> test/wf_local.json
+| File | Used by |
+|---|---|
+| `01_summarise_system.txt` | Summarization |
+| `02_judge_summary_system.txt` | Evaluation for Summarization |
+| `03_respond_system.txt` | Response Generation (holds the four policies) |
+| `04_judge_response_system.txt` | Evaluation for Response Generation (mirrors them) |
+
+Then regenerate — the workflow JSON is built, not hand-edited:
+
+```
+python3 build_workflow.py                 # the shipping file
+python3 build_workflow.py --local <dir>   # test copy -> test/wf_local.json
 ```
 
-`--local` writes to `test/wf_local.json`, never to the shipping JSON — it bakes in
-absolute machine paths, and overwriting the deliverable with them is silent.
-
-Re-import the regenerated JSON. Editing prompts inside a 37KB JSON blob by hand
-is how mistakes happen, so the generator is the supported path.
+`--local` writes to `test/wf_local.json`, never to the shipping JSON — it bakes
+in absolute machine paths, and overwriting the deliverable with them is silent.
 
 ---
 
-## Proving the error handling actually works
+## Node versions
 
-An always-empty `pipeline_errors` column is indistinguishable from error logging
-that never fires. So it was tested against deliberate faults:
+Pinned to the lowest version that supports what the guidelines ask for, so the
+file imports into an older lab instance:
 
-```bash
-MOCK_FAULT=1 python3 mock_openai_server.py    # then run the workflow
+| Node | typeVersion |
+|---|---|
+| Manual Trigger | 1 |
+| Read/Write Files from Disk | 1 |
+| Extract from File | 1 |
+| Basic LLM Chain | 1.6 |
+| OpenAI Chat Model | 1.2 |
+| Structured Output Parser | 1.2 |
+| Edit Fields (Set) | 3.4 |
+| Convert to File | 1.1 |
+
+Basic LLM Chain at 1.6 is the binding constraint — roughly n8n 1.60+ imports
+cleanly.
+
+---
+
+## A trap worth knowing about
+
+`support_ticket_data.csv` begins with a UTF-8 byte order mark. Left alone, that
+mark becomes part of the first column's *name*, so `support_ticket_id` reads as
+empty and no error is raised anywhere. **Extract Ticket Data** therefore has
+`enableBOM` switched on.
+
+---
+
+## Testing without an API key
+
+`mock_openai_server.py` is a local OpenAI-compatible endpoint used to prove the
+wiring. It is **not** a language model — it answers with keyword-matched
+boilerplate and stamps `[MOCK]` on everything.
+
+```
+MOCK_PORT=18400 python3 mock_openai_server.py
 ```
 
-This makes ticket 5 return prose instead of JSON, and ticket 23 return valid JSON
-of the wrong shape. Result:
+Then point the credential's **Base URL** at `http://127.0.0.1:18400/v1`.
 
-```
-ticket  5: summary_unparseable; summary_judge_unparseable;
-           response_unparseable; response_judge_unparseable      → review=YES
-ticket 23: response_judge_missing:relevance/empathy_and_tone/...  → review=YES
-
-review queue grew from 6 rows to 8 — exactly the two faulted tickets
-```
-
-The second case is the one that matters. A model returning `{"score": 4}` parses
-as perfectly valid JSON and originally produced a row of **silent blank score
-columns with no error recorded anywhere**. That is why `Consolidate Ticket Record`
-validates the *shape* of every stage's output, not just that it parsed.
+Note that the mock must wrap its payload in the `output` key the Structured
+Output Parser expects. Returning the bare object is what produced the silent
+blank-column run described above.
 
 ---
 
 ## Files
 
-```
-ShopNest_Ticket_Intelligence.json   the workflow — this is what you import
-build_workflow.py                   regenerates the JSON from prompts/
-prompts/01_summarise_system.txt     triage / summarisation system message
-prompts/02_judge_summary_system.txt LLM-as-a-Judge for the summary
-prompts/03_respond_system.txt       reply drafting + the 10 ShopNest policies
-prompts/04_judge_response_system.txt LLM-as-a-Judge for the reply
-mock_openai_server.py               mock endpoint for wiring tests, NOT for real runs
-capture_run.py                      executes from the UI and screenshots it
-data/support_ticket_data.csv        the 30 source tickets
-output/                             sample output (generated against the MOCK)
-screenshots/                        canvas, node configs, execution results
-```
-
----
-
-## Open question: the policies are assumed
-
-The brief says to "embed all policies accurately in the system message" but does
-not supply a policy document. The ten policies in
-`prompts/03_respond_system.txt` (refund SLA 3–5 business days, 10-day electronics
-return window, free pickup on damaged goods, no goodwill without a human, and so
-on) were inferred from what customers reference in the 30 tickets — ticket 21
-cites the 3–5 day refund SLA, ticket 22 the 10-day return window.
-
-**If the course's solution-approach document contains a real policy list, replace
-that block.** The judge's policy list in `04_judge_response_system.txt` mirrors it
-and must be updated to match, or the judge will score against the wrong rules.
+| Path | What it is |
+|---|---|
+| `ShopNest_Ticket_Intelligence.json` | **The deliverable.** Import this. |
+| `build_workflow.py` | Generates the above. Edit here, not the JSON. |
+| `prompts/*.txt` | The four system messages. |
+| `verify_output.py` | Checks the output CSV. Run after every execution. |
+| `mock_openai_server.py` | Local test endpoint, no API key needed. |
+| `output/` | Result of the most recent local run (mocked). |
