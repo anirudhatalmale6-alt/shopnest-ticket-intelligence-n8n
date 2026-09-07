@@ -202,7 +202,13 @@ STAGES = [
         # Temperature 0.4: enough variation for natural, non-templated warmth.
         # The policies are enforced by the system message, not by low entropy.
         temperature=0.4,
-        max_tokens=600,
+        # 1500, not 600. A 110-180 word reply plus the JSON wrapper and the
+        # parser's own format instructions overran 600 in the lab, and the
+        # completion stopped mid-sentence. Truncated JSON does not parse, so
+        # the chain failed with "Model output doesn't fit required format" -
+        # a format error whose real cause is a length cap. Headroom is free
+        # here; the model stops when the reply is done, not when the cap is.
+        max_tokens=1500,
         schema=schema({"response": s_str("The complete customer reply.")}),
         chain_notes="Stage 3 of 4. Summary in, policy-grounded customer reply out.",
         model_notes="Temp 0.4 - natural tone; policy is enforced by the prompt.",
@@ -220,7 +226,9 @@ STAGES = [
             "Evaluate the response."
         ),
         temperature=0.0,
-        max_tokens=600,
+        # Three scores and three free-text reasonings - the largest payload of
+        # the four stages. Raised with Response Model for the same reason.
+        max_tokens=1200,
         schema=schema({
             "issue_addressal_score": s_score("1-3. Does it address the issue, within policy."),
             "issue_addressal_reasoning": s_str("Evidence for that score."),

@@ -79,6 +79,35 @@ and Field Coverage (each 1-3)"*.
 | Both judges | 0.0 | A score that changes between runs cannot be used to track quality over time. |
 | Response Generation | 0.4 | Enough variation for natural, non-templated warmth. Policy is enforced by the prompt, not by low entropy. |
 
+### Token caps, and a failure that lies about its cause
+
+| Stage | Max tokens |
+|---|---|
+| Summarization | 400 |
+| Evaluation for Summarization | 500 |
+| Response Generation | **1500** |
+| Evaluation for Response Generation | **1200** |
+
+The last two were originally 600, and that was wrong. In the lab, Response
+Generation failed on its first item with:
+
+> Model output doesn't fit required format
+
+That reads like a schema problem. It was not. The model was producing exactly
+the right shape — the input to the parser began
+`{"output":{"response":"Dear Customer,\n\nThank you for reaching out…` — but the
+completion hit the 600-token cap and **stopped mid-sentence**. Truncated JSON
+does not parse, and the parser reports the only thing it can see: the format
+didn't match.
+
+The reply itself (110–180 words) plus the JSON wrapper plus the parser's own
+injected format instructions do not fit in 600 tokens. The response judge writes
+three scores and three free-text reasonings, so it was raised too.
+
+**The general lesson: when a structured-output parser rejects a well-formed
+model, check the length cap before you touch the schema.** Headroom costs
+nothing — the model stops when the reply is finished, not when the cap is.
+
 ---
 
 ## The policies are the real ones
