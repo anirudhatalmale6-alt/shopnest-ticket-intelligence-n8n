@@ -175,10 +175,21 @@ class Handler(BaseHTTPRequestHandler):
             elif "DOA unit" in user_msg and stage == "judge_response":
                 fault = "wrong_shape"    # valid JSON, wrong keys
 
+        # MOCK_FENCE=1 reproduces the fault seen in the client's lab: perfectly
+        # valid JSON of the right shape, opened with a ```json fence that is
+        # never closed. n8n strips a fence only when it finds BOTH ends, so the
+        # backticks survive and JSON.parse dies on the first character. The
+        # reported error blames the schema. This mode exists so that failure is
+        # reproducible inside real n8n and not just in a hand-written test.
+        if os.environ.get("MOCK_FENCE") == "1" and fault is None:
+            fault = "open_fence"
+
         if fault == "prose":
             content_str = "I'm sorry, I can't produce that as JSON right now."
         elif fault == "wrong_shape":
             content_str = json.dumps({"score": 4, "comment": "looks fine"})
+        elif fault == "open_fence":
+            content_str = "```json\n" + json.dumps({"output": build(stage, user_msg)})
         else:
             # n8n's Structured Output Parser validates against a schema wrapped in
             # an "output" key - its own hint says so: { "output": { ... } }. A real

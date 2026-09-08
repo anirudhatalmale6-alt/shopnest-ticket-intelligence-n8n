@@ -54,7 +54,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ticket: \"{{ $('Extract Ticket Data').item.json.support_ticket_desc }}\"\nSummary:",
+        "text": "=Ticket: \"{{ $('Extract Ticket Data').item.json.support_ticket_desc }}\"\nSummary:\nReturn raw JSON only. Do not use markdown code fences or backticks.",
         "hasOutputParser": true,
         "messages": {
           "messageValues": [
@@ -125,7 +125,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Original Ticket: \"{{ $('Extract Ticket Data').item.json.support_ticket_desc }}\"\nTicket Summary: \"{{ $json.output.summary }}\"\nEvaluate the summary.",
+        "text": "=Original Ticket: \"{{ $('Extract Ticket Data').item.json.support_ticket_desc }}\"\nTicket Summary: \"{{ $json.output.summary }}\"\nEvaluate the summary.\nReturn raw JSON only. Do not use markdown code fences or backticks.",
         "hasOutputParser": true,
         "messages": {
           "messageValues": [
@@ -196,7 +196,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ticket Summary: \"{{ $('Summarization').item.json.output.summary }}\"",
+        "text": "=Ticket Summary: \"{{ $('Summarization').item.json.output.summary }}\"\nReturn raw JSON only. Do not use markdown code fences or backticks.",
         "hasOutputParser": true,
         "messages": {
           "messageValues": [
@@ -267,7 +267,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ticket Summary: \"{{ $('Summarization').item.json.output.summary }}\"\nGenerated Response: \"{{ $json.output.response }}\"\nEvaluate the response.",
+        "text": "=Ticket Summary: \"{{ $('Summarization').item.json.output.summary }}\"\nGenerated Response: \"{{ $json.output.response }}\"\nEvaluate the response.\nReturn raw JSON only. Do not use markdown code fences or backticks.",
         "hasOutputParser": true,
         "messages": {
           "messageValues": [

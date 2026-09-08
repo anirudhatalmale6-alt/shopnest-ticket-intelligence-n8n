@@ -82,12 +82,23 @@ def s_score(desc, lo=1, hi=3):
 # node factories
 # --------------------------------------------------------------------------
 
+# n8n's Structured Output Parser strips a markdown fence ONLY when it finds the
+# opening ``` AND a matching closing ```. gpt-4o-mini regularly opens a ```json
+# block and never closes it; the parser then leaves the backticks in place and
+# JSON.parse dies on the first character. The reported error is "Model output
+# doesn't fit required format", which points at the schema and not at the fence.
+# Verified against the real parser source: open-fence-only throws, both-fences
+# and no-fence both parse. Asking for no fence at all is the robust option -
+# there is then nothing to strip.
+NO_FENCE = "Return raw JSON only. Do not use markdown code fences or backticks."
+
+
 def chain_node(name, x, y, system_text, user_text, notes):
     """A Basic LLM Chain. Its model and parser arrive as sub-nodes."""
     return {
         "parameters": {
             "promptType": "define",
-            "text": user_text,
+            "text": user_text.rstrip("\n") + "\n" + NO_FENCE,
             "hasOutputParser": True,
             "messages": {"messageValues": [
                 {"type": "SystemMessagePromptTemplate", "message": system_text},
