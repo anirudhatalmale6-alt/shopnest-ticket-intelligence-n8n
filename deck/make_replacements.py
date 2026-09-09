@@ -71,6 +71,11 @@ R["slide-2"] = {
         "policy-grounded reply, score that reply. All 30 tickets, end to end, unattended.",
         "The two scoring stages are the point. They turn \"the summaries look fine\" into a number "
         "that can be tracked weekly, which is what makes this deployable rather than a demo.",
+        "Result on the 30-ticket run: summaries scored 2.87 and 2.83 of 3; replies scored 5.37 of "
+        "6 overall, with 20 of 30 clean and zero invented identifiers anywhere in the output.",
+        "The judge already caught a real error. One reply misapplied a delivery policy to a case "
+        "no policy covers, and was flagged 'not safe to send as written'. It was fluent, warm and "
+        "wrong - which is precisely what human sampling misses.",
         "Ticket length runs from 3 words to 184 (mean 80). The cost is the variance, not the "
         "average: an agent must read all 184 to learn whether the one useful line is even there.",
         "10 of 30 tickets (33%) contain no order reference. No model can recover that. It is an "
@@ -168,10 +173,16 @@ R["slide-8"] = {
         ph("[ SCREENSHOT: Summarization node - INPUT and OUTPUT panels ]"),
         note("Both panels open, 30 items visible in each, per the guidelines."),
         h("Observations", 11.5),
-        b("TO FILL FROM THE RUN: how the summariser handled the 184-word ticket, and whether it "
-          "correctly refused to invent an order reference on the 10 tickets that lack one.", 10.0, 13.6),
-        b("TO FILL FROM THE RUN: behaviour on the three-word ticket - an honest short summary, or "
-          "padding.", 10.0, 13.6),
+        b("Compression is real and consistent. Tickets run 3 to 184 words (mean 80); the summaries "
+          "run 27 to 66 words (mean 48). The 184-word complaint reduced to 60 words while keeping "
+          "order SNX-5502, the exact model discrepancy and the $340 figure.", 10.0, 13.6),
+        b("Zero invented identifiers across all 30 summaries. Every SNX- reference appearing in a "
+          "summary also appears in its source ticket - checked programmatically, not by eye. On "
+          "ticket 6, which cites two conflicting references, the summary preserved the ambiguity "
+          "rather than silently picking one.", 10.0, 13.6),
+        b("The three-word ticket ('refund not received') produced an honest 28-word summary that "
+          "states plainly that no order or transaction reference was provided. It did not pad, and "
+          "it did not invent a reference to fill the gap.", 10.0, 13.6),
     ]},
 }
 
@@ -200,10 +211,17 @@ R["slide-10"] = {
         ph("[ SCREENSHOT: Evaluation for Summarization - INPUT and OUTPUT panels ]"),
         note("Input showing the summary, output showing the scores, 30 items."),
         h("Observations", 11.5),
-        b("TO FILL FROM THE RUN: mean Information Extraction and Field Coverage across 30 tickets, "
-          "and how many scored below 3 on either.", 10.0, 13.6),
-        b("TO FILL FROM THE RUN: whether low Field Coverage clusters on the tickets that have no "
-          "order reference - which would show the judge is measuring the data, not the model.", 10.0, 13.6),
+        b("Across 30 tickets: Information Extraction mean 2.87 (27 scored 3, two scored 2, one "
+          "scored 1). Field Coverage mean 2.83 (26 scored 3, three scored 2, one scored 1).", 10.0, 13.6),
+        b("The low scores cluster exactly where the data is thin. Field Coverage averages 3.00 on "
+          "the 20 tickets that carry an order reference and 2.50 on the 10 that do not - and all "
+          "four sub-3 Coverage scores fall in that second group. The judge is measuring the "
+          "ticket, not the model.", 10.0, 13.6),
+        b("One honest disagreement, shown rather than hidden. On ticket 3 ('not working. please "
+          "help.') the summariser reported that the ticket lacks any actionable detail. The judge "
+          "scored that 1 and 1, arguing the summary omitted the core problem. The summariser's "
+          "behaviour is arguably the more useful of the two - which is a fair reminder that an "
+          "automated score is evidence, not a verdict.", 10.0, 13.6),
     ]},
 }
 
@@ -244,15 +262,21 @@ R["slide-12"] = {
 }
 
 R["slide-13"] = {
-    "shape-0": {"paragraphs": [{"text": "Response Generation - Output & Observations", **TITLE}]},
+    # Kept short: the longer "- Output & Observations" form ran into the Great
+    # Learning logo in the top right corner when rendered.
+    "shape-0": {"paragraphs": [{"text": "Response Generation - Output", **TITLE}]},
     "shape-1": {"paragraphs": [
         ph("[ SCREENSHOT: Response Generation node - INPUT and OUTPUT panels ]"),
         note("Input showing the summary, output showing the generated reply, 30 items."),
         h("Observations", 11.5),
-        b("TO FILL FROM THE RUN: whether the four escalation-flagged tickets were answered on the "
-          "service problem alone, without engaging the threat.", 10.0, 13.6),
-        b("TO FILL FROM THE RUN: whether replies to the 10 tickets with no order reference asked "
-          "for it, rather than inventing one or answering vaguely.", 10.0, 13.6),
+        b("Three tickets carry an explicit escalation threat - the Better Business Bureau (1), a "
+          "state consumer protection office (10), and the FTC plus a consumer rights attorney (24). "
+          "All three replies answered the underlying service problem and did not engage the threat "
+          "at all. All three scored 3 on Issue Addressal.", 10.0, 13.6),
+        b("8 of the 10 tickets with no order reference produced a reply that asks the customer for "
+          "identifying details. None invented a reference. Replies run 84 to 139 words (mean 114), "
+          "inside the 110-180 word target band and consistent enough to sit under one brand voice.",
+          10.0, 13.6),
     ]},
 }
 
@@ -281,10 +305,17 @@ R["slide-15"] = {
         ph("[ SCREENSHOT: Evaluation for Response Generation - INPUT and OUTPUT panels ]"),
         note("Input showing summary and reply, output showing the scores, 30 items."),
         h("Observations", 11.5),
-        b("TO FILL FROM THE RUN: mean Issue Addressal, Resolution Clarity and overall score, and "
-          "how many replies would be safe to auto-send under the gate proposed later.", 10.0, 13.6),
-        b("TO FILL FROM THE RUN: any reply the judge marked down for an off-policy promise - the "
-          "most commercially expensive failure this pipeline can make.", 10.0, 13.6),
+        b("Issue Addressal mean 2.67, Resolution Clarity mean 2.70, overall mean 5.37 out of 6. "
+          "20 of 30 replies scored a clean 6; 22 scored 5 or more; 8 scored 4 or below and would be "
+          "routed to a human under the gate proposed later.", 10.0, 13.6),
+        b("The judge earned its place on ticket 18. A customer complained that a DoorDash driver "
+          "was an hour late and the food arrived cold - a case no ShopNest policy covers. The "
+          "generated reply reached for the Delivery Delay policy and misapplied it, implying a "
+          "refund rule that does not fit. The judge scored Issue Addressal 1, the lowest of all 30, "
+          "and wrote: 'The reply is not safe to send as written.'", 10.0, 13.6),
+        b("That is the entire argument for LLM-as-a-Judge in one row. The reply was fluent, warm "
+          "and confidently wrong. Fluency is exactly what a human reviewer skim-reading 200 tickets "
+          "a day is least likely to catch.", 10.0, 13.6),
     ]},
 }
 
@@ -320,10 +351,15 @@ R["slide-17"] = {
         "amount. It is 0.4% of the longest ticket's length and needs the same human attention.",
         "One ticket cites two different order references. Automation that silently picks one is "
         "worse than automation that flags the ambiguity.",
-        "4 of 30 tickets use legal or regulatory escalation language - and these are exactly the "
-        "tickets where an off-policy promise is most expensive to honour.",
-        "Emotional content is a large share of the words and almost none of the information. That "
-        "is precisely what the summarisation stage removes, and why it saves real reading time.",
+        "3 of 30 tickets use legal or regulatory escalation language - the Better Business Bureau, "
+        "a state consumer protection office, and the FTC with an attorney engaged. These are "
+        "exactly the tickets where an off-policy promise is most expensive to honour.",
+        "The missing order reference is measurable in the scores, not just in principle. Replies to "
+        "tickets that carry a reference average 5.65 of 6; replies to those without average 4.80. "
+        "Same model, same prompt - the gap is the intake data.",
+        "Emotional content is a large share of the words and almost none of the information. The "
+        "summariser compresses a mean of 80 words to 48, and the 184-word complaint to 60, with no "
+        "loss of the order number, the model or the disputed amount.",
     ]]},
 }
 
@@ -333,7 +369,8 @@ R["slide-18"] = {
         "Deploy as agent-assist, not auto-send. The pipeline drafts; a human sends. The scores make "
         "that review queue triageable instead of random.",
         "Use the judge as a release gate: auto-send only where both criteria score 3 and no policy "
-        "flag is raised. Everything else goes to a person. Widen the gate as evidence accumulates.",
+        "flag is raised. On this run that gate passes 20 of 30 replies and routes the other 10 to a "
+        "person - including the one the judge called unsafe. Widen it as evidence accumulates.",
         "Fix the intake form before spending anything on a bigger model. Making the order reference "
         "required addresses a third of this dataset at near-zero cost - no model upgrade competes.",
         "Route ambiguous and escalation-flagged tickets to senior agents automatically. The "
