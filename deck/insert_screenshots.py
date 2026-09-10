@@ -25,6 +25,7 @@ BODY_PT = 8.5
 
 # deck slide index -> screenshot for that stage
 SHOTS = {
+    6:  "screenshots/09_extract_ticket_data.png",
     8:  "screenshots/10_summarization.png",
     10: "screenshots/11_eval_summarization.png",
     13: "screenshots/12_response_generation.png",
@@ -62,6 +63,8 @@ def main(path):
         tf = body.text_frame
         drop = [p._p for p in tf.paragraphs
                 if "[ SCREENSHOT:" in p.text
+                # "Edit Fields maps..." is NOT in this list: it is a real content
+                # bullet on the compilation slide, not a screenshot note.
                 or p.text.startswith(("Both panels", "Input showing", "Must show"))]
         for el in drop:
             el.getparent().remove(el)

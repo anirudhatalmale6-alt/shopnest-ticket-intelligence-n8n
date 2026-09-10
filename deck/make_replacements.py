@@ -135,7 +135,7 @@ R["slide-5"] = {
         "30 tickets. Length 3 to 184 words; mean 80, median 57.",
         "4 tickets under 20 words, 9 over 120. The spread is the problem, not the average.",
         "20 of 30 carry an order reference. 10 carry none. One carries two different ones.",
-        "4 tickets contain legal or regulatory escalation language.",
+        "3 tickets contain legal or regulatory escalation language.",
     ]]},
 }
 
@@ -145,7 +145,10 @@ R["slide-6"] = {
         ph("[ SCREENSHOT: Extract from File - output panel ]"),
         note("Must show the item count (30 items) and at least one full row of data, "
              "per the guidelines."),
-        b("Confirms 30 items parsed and both columns present.", 10.5, 14.0),
+        b("30 items parsed from a 13.5 kB file, with both columns present and populated.", 10.5, 14.0),
+        b("Exclude Byte Order Mark is switched on deliberately. The source CSV begins with a "
+          "UTF-8 byte order mark; left in, that mark becomes part of the first column's NAME, so "
+          "support_ticket_id reads as empty and nothing anywhere raises an error.", 10.5, 14.0),
         b("The shortest ticket in the set, in full: \"refund not received\".", 10.5, 14.0),
     ]},
 }
