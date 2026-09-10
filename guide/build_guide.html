@@ -1,0 +1,355 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Building the ShopNest Ticket Intelligence Workflow</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 14mm 15mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    font-size: 10pt; line-height: 1.5; color: #1c1c1e; margin: 0;
+  }
+  h1 { font-size: 21pt; color: #0E39A9; margin: 0 0 2mm; line-height: 1.2; }
+  .sub { font-size: 10.5pt; color: #555; margin: 0 0 8mm; }
+  h2 {
+    font-size: 13pt; color: #0E39A9; margin: 9mm 0 3mm;
+    border-bottom: 2px solid #0E39A9; padding-bottom: 1.5mm;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11pt; color: #14243f; margin: 6mm 0 2mm;
+    page-break-after: avoid;
+  }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.5mm; }
+  code {
+    font-family: "DejaVu Sans Mono", monospace; font-size: 8.6pt;
+    background: #eef1f7; padding: 0.4mm 1.2mm; border-radius: 2px;
+    word-break: break-word;
+  }
+  pre {
+    font-family: "DejaVu Sans Mono", monospace; font-size: 8.4pt;
+    background: #f5f6fa; border-left: 3px solid #0E39A9;
+    padding: 3mm 4mm; margin: 0 0 4mm; white-space: pre-wrap;
+    word-break: break-word; line-height: 1.45;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 4mm; font-size: 9pt; }
+  th {
+    background: #0E39A9; color: #fff; text-align: left;
+    padding: 1.8mm 2.5mm; font-weight: bold;
+  }
+  td { border-bottom: 1px solid #dcdfe6; padding: 1.8mm 2.5mm; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7f8fb; }
+  .why {
+    background: #f0f7f0; border-left: 3px solid #2e9e4f;
+    padding: 3mm 4mm; margin: 0 0 4mm;
+  }
+  .why b { color: #1d6e37; }
+  .trap {
+    background: #fff5f4; border-left: 3px solid #c0392b;
+    padding: 3mm 4mm; margin: 0 0 4mm;
+  }
+  .trap b { color: #a5281b; }
+  .step { font-weight: bold; color: #0E39A9; }
+  .flow {
+    font-family: "DejaVu Sans Mono", monospace; font-size: 8.2pt;
+    background: #14243f; color: #e8ecf5; padding: 4mm; margin: 0 0 5mm;
+    white-space: pre; line-height: 1.5; overflow-x: hidden;
+  }
+  .note { font-size: 9pt; color: #555; font-style: italic; }
+  .pb { page-break-before: always; }
+  footer { margin-top: 10mm; padding-top: 3mm; border-top: 1px solid #ccc;
+           font-size: 8.5pt; color: #777; }
+</style>
+
+<h1>Building the ShopNest Ticket Intelligence Workflow</h1>
+<p class="sub">A build-along guide — every node, from an empty canvas, and why each one is there.<br>
+Written for the Great Learning <i>Generative and Agentic AI Foundations</i> project, no-code (n8n) track.</p>
+
+<h2>How to use this</h2>
+<p>This is the workflow you already have, taken apart. Open a <b>new, empty</b> workflow next to
+this document and build it a second time from scratch. You will not break anything — your
+working copy stays exactly where it is.</p>
+<p>Building it yourself once is the difference between having the assignment and understanding it.
+Each section says what to click, then explains why it is there. The green boxes are the reasoning.
+The red boxes are the things that actually went wrong while we built it.</p>
+
+<h2>The idea in one paragraph</h2>
+<p>A support ticket arrives as messy free text. We do four things to it: <b>summarise</b> it,
+<b>score that summary</b>, <b>write a reply</b>, and <b>score that reply</b>. Then we write all four
+results plus the original ticket onto one row of a spreadsheet. The two scoring steps are what make
+this more than a demo — they turn "the replies look fine" into a number you can track week by week.</p>
+
+<div class="flow">Run Pipeline  →  Read Ticket CSV  →  Extract Ticket Data
+                                       │
+                                       ▼
+   Summarization → Evaluation for → Response  → Evaluation for
+                   Summarization    Generation  Response Generation
+                                       │
+                                       ▼
+   Extract the Outputs → Convert to File → Save the Data
+
+   Each of the four AI boxes carries two smaller boxes underneath:
+     an OpenAI Chat Model  (which model, how creative, how long)
+     a Structured Output Parser  (what shape the answer must be)</div>
+
+<p>That is 9 main nodes and 9 sub-nodes: <b>18 in total</b>.</p>
+
+<div class="why"><b>Why this shape?</b> It is not a free choice. Your Solution Approach &amp;
+Guidelines document specifies these nodes by name, and the marking scheme checks screenshots
+against them. Where the guidelines name a node, we use their name exactly.</div>
+
+<h2>Before you start</h2>
+<ul>
+  <li>The n8n lab open, and <code>support_ticket_data.csv</code> uploaded via the <b>Files</b> tab.</li>
+  <li>Your lab file path. Ours was <code>/data/learner-16426312/files/</code> — yours is on the
+      Files panel, bottom left.</li>
+  <li>The credential <b>Great Learning AI (OpenAI + Gemini)</b>, which the lab provides.</li>
+</ul>
+
+<h2 class="pb">Part 1 — The plumbing (3 nodes)</h2>
+
+<h3>Node 1 · Run Pipeline</h3>
+<p><span class="step">Add node →</span> search <b>Manual Trigger</b>. Rename it to
+<code>Run Pipeline</code> (double-click the name at the top of the node).</p>
+<p>Every workflow needs something that starts it. A manual trigger means "starts when I press
+Execute Workflow". In production you would swap this for a schedule or a webhook, and nothing
+downstream would change.</p>
+
+<h3>Node 2 · Read Ticket CSV</h3>
+<p><span class="step">Add node →</span> <b>Read/Write Files from Disk</b>.</p>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Operation</td><td>Read File(s) From Disk</td></tr>
+  <tr><td>File(s) Selector</td><td><code>/data/learner-&lt;your-id&gt;/files/support_ticket_data.csv</code></td></tr>
+</table>
+<p>This reads the file off the disk as raw bytes. It does <b>not</b> understand that the bytes are a
+spreadsheet — that is the next node's job.</p>
+
+<div class="trap"><b>Trap 1 — the run that succeeded and did nothing.</b> On our first attempt this
+node still held a placeholder path. It found no file, returned <b>zero items</b>, and did not raise
+an error. With no items to work on, n8n skipped all 16 remaining nodes and marked the whole run
+<b>successful</b>. Two lines in the log, nine milliseconds, no output.<br><br>
+The lesson: in n8n, "Success" on a node means only <i>this node did not throw an error</i>. It does
+not mean it did anything. Always check the item count and the duration — 30 tickets through 4 AI
+stages takes minutes, not milliseconds.</div>
+
+<h3>Node 3 · Extract Ticket Data</h3>
+<p><span class="step">Add node →</span> <b>Extract from File</b>.</p>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Operation</td><td>Extract From CSV</td></tr>
+  <tr><td>Input Binary Field</td><td><code>data</code></td></tr>
+  <tr><td>Options → Exclude Byte Order Mark (BOM)</td><td><b>ON</b></td></tr>
+  <tr><td>Options → Header Row</td><td>ON</td></tr>
+</table>
+<p>This turns the bytes into 30 separate items, one per ticket, each with
+<code>support_ticket_id</code> and <code>support_ticket_desc</code>.</p>
+
+<div class="trap"><b>Trap 2 — the invisible character.</b> This CSV begins with a UTF-8
+<i>byte order mark</i>: an invisible marker some programs put at the start of a text file. Left
+alone, it becomes part of the <b>name</b> of the first column — so the column is really called
+<code>[BOM]support_ticket_id</code> rather than <code>support_ticket_id</code>, where
+<code>[BOM]</code> stands for a character you cannot see on screen at all. Every reference to
+<code>support_ticket_id</code> then returns empty, and <b>nothing anywhere reports an error</b>.
+That is what the Exclude BOM toggle prevents.</div>
+
+<div class="why"><b>Why one item per ticket matters.</b> From here on, n8n runs every downstream node
+once per item, automatically. There is no loop node in this workflow and none is needed — that is
+n8n's core idea, and it is why the guidelines do not ask for one.</div>
+
+<h2>Part 2 — One AI stage, in full detail</h2>
+<p>All four AI stages are built the same way. Learn this one and the other three are variations.</p>
+
+<h3>Node 4 · Summarization (the chain)</h3>
+<p><span class="step">Add node →</span> <b>Basic LLM Chain</b>. Rename to <code>Summarization</code>.</p>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Source for Prompt</td><td>Define below</td></tr>
+  <tr><td>Prompt (User Message)</td><td><code>Ticket: "{{ $('Extract Ticket Data').item.json.support_ticket_desc }}"<br>Summary:<br>Return raw JSON only. Do not use markdown code fences or backticks.</code></td></tr>
+  <tr><td>Require Specific Output Format</td><td><b>ON</b></td></tr>
+  <tr><td>Chat Messages → Add → System Message</td><td>the summarisation instructions</td></tr>
+</table>
+
+<div class="why"><b>System message vs prompt.</b> The <b>system message</b> is the job description —
+who the model is and what rules it follows. It is the same for all 30 tickets. The <b>prompt</b> is
+the individual piece of work — this ticket. Putting the rules in the system message and the data in
+the prompt is what keeps behaviour consistent across items.</div>
+
+<p>The system message for this stage tells the model: you are a triage analyst; never invent detail;
+copy identifiers exactly; strip the emotion but keep the facts; expand shorthand; 2–4 sentences.</p>
+
+<h3>Node 5 · Summarisation Model (sub-node)</h3>
+<p>Underneath the chain node there is a connector marked <b>Model</b>. Click the <b>+</b> on it and add
+an <b>OpenAI Chat Model</b>.</p>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Credential</td><td>Great Learning AI (OpenAI + Gemini)</td></tr>
+  <tr><td>Model</td><td><code>gpt-4o-mini</code></td></tr>
+  <tr><td>Sampling Temperature</td><td><code>0.2</code></td></tr>
+  <tr><td>Maximum Number of Tokens</td><td><code>400</code></td></tr>
+</table>
+
+<div class="why"><b>What temperature actually does.</b> It controls how much the model varies its
+wording. <code>0.0</code> is as repeatable as the API allows; higher is more varied. Summarising is
+an <i>extraction</i> job — there is a right answer sitting in the ticket — so we keep it low at 0.2.
+Creative variation in a summary shows up as <b>invented detail</b>. The reply stage uses 0.4, because
+a reply that is word-for-word identical every time reads like a robot. Both judges use <b>0.0</b>: a
+score that changes between runs is useless for tracking quality.</div>
+
+<div class="trap"><b>Trap 3 — the credential is per-node.</b> There are four OpenAI Chat Model
+sub-nodes and <b>each one holds its own credential setting</b>. Setting it on one does not set the
+others. We lost time to exactly this: one box went green, the other three still had red warning
+triangles, and it would have failed halfway through the run.</div>
+
+<h3>Node 6 · Summary Schema (sub-node)</h3>
+<p>On the connector marked <b>Output Parser</b>, click <b>+</b> and add a
+<b>Structured Output Parser</b>. Set Schema Type to <b>Define using JSON Schema</b> and paste:</p>
+<pre>{
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "The summary paragraph."
+    }
+  },
+  "required": ["summary"]
+}</pre>
+
+<div class="why"><b>Why a schema at all?</b> Without one, the model replies in prose and the next node
+has to guess where the answer is. The schema forces a predictable shape, so the next node can simply
+read <code>summary</code>. n8n does two things with it: it injects formatting instructions into the
+prompt, and it validates what comes back.</div>
+
+<div class="trap"><b>Trap 4 — the unclosed code fence.</b> This is the one that cost us most.
+The model wrapped its answer in a markdown code block:
+<pre>```json
+{"output":{"response":"Dear Customer, ..."}}</pre>
+It opened the block with three backticks and never closed it. n8n strips a code fence only when it
+finds <b>both</b> the opening and closing marks — with only an opening one it leaves the backticks in
+place, then fails to read the result. The error it reports is <i>"Model output doesn't fit required
+format"</i>, which points at the schema and is entirely misleading; the shape was perfect.<br><br>
+The cure is the last line of every prompt in this workflow:
+<code>Return raw JSON only. Do not use markdown code fences or backticks.</code> With no fence at all
+there is nothing to strip.</div>
+
+<h2 class="pb">Part 3 — The other three stages</h2>
+<p>Build each exactly as above. Only these things differ.</p>
+
+<h3>Node 7 · Evaluation for Summarization</h3>
+<p><b>Prompt:</b></p>
+<pre>Original Ticket: "{{ $('Extract Ticket Data').item.json.support_ticket_desc }}"
+Ticket Summary: "{{ $json.output.summary }}"
+Evaluate the summary.
+Return raw JSON only. Do not use markdown code fences or backticks.</pre>
+<p><b>Model:</b> temperature <code>0.0</code>, max tokens <code>500</code>.
+<b>Schema fields:</b> <code>information_extraction_score</code>,
+<code>information_extraction_reasoning</code>, <code>field_coverage_score</code>,
+<code>field_coverage_reasoning</code>. Scores are integers 1–3.</p>
+
+<div class="why"><b>This is "LLM-as-a-Judge".</b> A second model, given the original <i>and</i> the
+summary, marks the first one's work and must quote the specific detail that justifies each score.
+Note that it reads the original ticket too — a judge that only sees the summary cannot tell whether
+anything was invented.</div>
+
+<h3>Node 8 · Response Generation</h3>
+<p><b>Prompt:</b></p>
+<pre>Ticket Summary: "{{ $('Summarization').item.json.output.summary }}"
+Return raw JSON only. Do not use markdown code fences or backticks.</pre>
+<p><b>Model:</b> temperature <code>0.4</code>, max tokens <code>1500</code>.
+<b>Schema field:</b> <code>response</code>.</p>
+<p>The system message here carries ShopNest's four real support policies verbatim — refunds and
+returns, delivery delay compensation, wrong or damaged items, and payment failures — plus hard rules:
+never promise anything the policies do not cover, never invent an order number or date, never engage
+with a legal threat, never blame the customer or the courier.</p>
+
+<div class="why"><b>Why reply from the summary, not the ticket?</b> Two reasons. It is the whole point
+of summarising first — if the reply still needs the raw ticket, the summary earned nothing. And it
+keeps abuse, threats and rambling out of the reply path entirely.</div>
+
+<div class="trap"><b>Trap 5 — a format error that was really a length limit.</b> This stage was
+originally capped at 600 tokens. A 110–180 word reply, plus the JSON wrapper, plus the parser's own
+injected instructions, does not fit — so the answer stopped mid-sentence, the JSON was incomplete,
+and the parser reported <i>"Model output doesn't fit required format"</i>. Same misleading message as
+Trap 4, completely different cause.<br><br>
+How to tell them apart: <b>read the end of the model's output</b>. Stops mid-sentence → raise the
+token limit. Complete but wrapped in stray backticks → the fence problem.</div>
+
+<h3>Node 9 · Evaluation for Response Generation</h3>
+<p><b>Prompt:</b></p>
+<pre>Ticket Summary: "{{ $('Summarization').item.json.output.summary }}"
+Generated Response: "{{ $json.output.response }}"
+Evaluate the response.
+Return raw JSON only. Do not use markdown code fences or backticks.</pre>
+<p><b>Model:</b> temperature <code>0.0</code>, max tokens <code>1200</code>.
+<b>Schema fields:</b> <code>issue_addressal_score</code>, <code>issue_addressal_reasoning</code>,
+<code>resolution_clarity_score</code>, <code>resolution_clarity_reasoning</code>,
+<code>overall_score</code>, <code>overall_reasoning</code>.</p>
+<p>This judge is given <b>the same four policies</b> as the writer, so it audits against the rules the
+writer was actually handed rather than its own idea of them. <code>overall_score</code> is the sum of
+the two criteria, so it runs 2–6.</p>
+
+<h2 class="pb">Part 4 — Assembling the output (3 nodes)</h2>
+
+<h3>Node 10 · Extract the Outputs</h3>
+<p><span class="step">Add node →</span> <b>Edit Fields (Set)</b>, Mode <b>Manual Mapping</b>.
+Add 14 fields. The first four are the ones the brief names:</p>
+<pre>support_ticket_id     {{ $('Extract Ticket Data').item.json.support_ticket_id }}
+support_ticket_desc   {{ $('Extract Ticket Data').item.json.support_ticket_desc }}
+summarisation         {{ $('Summarization').item.json.output.summary }}
+response_generation   {{ $('Response Generation').item.json.output.response }}</pre>
+<p>The other ten are the four criterion scores, the overall score, and each judge's written reasoning
+— so every score sits on the same row as the text that earned it.</p>
+
+<h3>Node 11 · Convert to File</h3>
+<p>Operation <b>Convert to CSV</b>, Put Output File in Field <code>data</code>. This collapses all
+30 items into a single file.</p>
+
+<h3>Node 12 · Save the Data</h3>
+<p><b>Read/Write Files from Disk</b>, Operation <b>Write File to Disk</b>,
+File Path and Name <code>/data/learner-&lt;your-id&gt;/files/shopnest_ticket_output.csv</code>,
+Input Binary Field <code>data</code>.</p>
+<p class="note">Note this is a <i>different</i> path from Node 2 — same folder, different filename.
+Forgetting to change this one is why our first complete run ended in a red box at the very last step.</p>
+
+<h2>Reading the expressions</h2>
+<p>Everything in <code>{{ }}</code> is a live lookup. Three patterns cover the whole workflow.</p>
+<table>
+  <tr><th>Expression</th><th>Means</th></tr>
+  <tr><td><code>$json.output.summary</code></td>
+      <td>From the node <b>immediately before</b> this one.</td></tr>
+  <tr><td><code>$('Summarization').item.json.output.summary</code></td>
+      <td>From a <b>named</b> node further back. Use this to reach past the previous node.</td></tr>
+  <tr><td><code>.item</code></td>
+      <td>"the matching item" — ticket 7's summary lines up with ticket 7's reply, automatically.</td></tr>
+</table>
+
+<div class="why"><b>Why <code>.output.</code> is always in the middle.</b> The Structured Output Parser
+wraps everything it returns inside a key called <code>output</code>. So it is
+<code>$json.output.summary</code>, never <code>$json.summary</code>. Miss it and you get blank
+columns with no error at all — which is exactly what happened to us once during the build.</div>
+
+<h2>Checking it actually worked</h2>
+<p>The single most useful habit from this whole project: <b>an execution status is not evidence.</b>
+Every failure we hit reported success somewhere. So check the artefact instead.</p>
+<ul>
+  <li><b>Item counts.</b> Every stage should say 30 items. A stage showing 1 item has stopped early.</li>
+  <li><b>Duration.</b> 120 model calls take minutes. An instant run did nothing.</li>
+  <li><b>Where the green line stops.</b> On the canvas, the connectors turn green as data flows.
+      Where they go grey is where execution actually ended.</li>
+  <li><b>Open the CSV.</b> Row count, no empty columns, scores inside 1–3, and
+      <code>overall_score</code> equal to its two parts added together.</li>
+</ul>
+
+<h2>What your run produced</h2>
+<table>
+  <tr><th>Measure</th><th>Result</th></tr>
+  <tr><td>Information Extraction / Field Coverage</td><td>2.87 and 2.83 out of 3</td></tr>
+  <tr><td>Issue Addressal / Resolution Clarity</td><td>2.67 and 2.70 out of 3</td></tr>
+  <tr><td>Overall</td><td>5.37 out of 6 — 20 of 30 replies scored a clean 6</td></tr>
+  <tr><td>Invented order numbers</td><td>zero, across all 30 summaries</td></tr>
+  <tr><td>With an order reference vs without</td><td>5.65 vs 4.80 — the gap is the intake data</td></tr>
+</table>
+
+<footer>Built for the ShopNest Global ticket intelligence project. The workflow file, prompts and
+output checker are in the project repository. Every figure above is measured from your own lab run.</footer>
